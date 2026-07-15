@@ -93,7 +93,7 @@ router.get('/GetOtherMessageById', function(req, res) {
       DATE_FORMAT(DATE_SUB(s.subscribe_end_date, INTERVAL 1 DAY), '%Y-%m-%d') AS subscribe_last_date,
       s.is_current,
       i.id AS image_id,
-      i.image_url,
+      CONCAT('/flower', i.image_url) AS image_url,
       i.sort_order,
       i.is_cover
     FROM tb_flower f
@@ -204,7 +204,7 @@ router.get('/Navegate_NewArrivals', function (req, res) {
       DATE_FORMAT(DATE_SUB(s.subscribe_end_date, INTERVAL 1 DAY), '%Y-%m-%d') AS subscribe_last_date,
       s.is_current,
       i.id AS image_id,
-      i.image_url,
+      CONCAT('/flower', i.image_url) AS image_url,
       i.sort_order,
       i.is_cover
     FROM tb_flower f
@@ -316,7 +316,7 @@ router.get('/parting_flowers', function(req, res) {
       DATE_FORMAT(DATE_SUB(s.subscribe_end_date, INTERVAL 1 DAY), '%Y-%m-%d') AS subscribe_last_date,
       s.is_current,
       i.id AS image_id,
-      i.image_url,
+      CONCAT('/flower', i.image_url) AS image_url,
       i.sort_order,
       i.is_cover
     FROM tb_flower f
@@ -409,7 +409,7 @@ router.get('/GetOtherFlowersPictureBySeason', function(req, res) {
       f.id,
       f.season_id,
       f.flower_name,
-      i.image_url AS cover_image
+      CONCAT('/flower', i.image_url) AS cover_image
     FROM tb_flower current_flower
     INNER JOIN tb_flower f ON f.season_id = current_flower.season_id
     LEFT JOIN tb_flower_image i ON i.id = (
