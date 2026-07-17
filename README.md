@@ -3,7 +3,14 @@
 Vue3 + Express + MySQL 全栈项目，独立完成展示型前台、订阅业务闭环与 Nginx 公网部署。
 
 - 在线访问：http://115.29.203.212/flower/
+- 免注册在线访问：http://115.29.203.212/flower-demo/
 - 技术栈：Vue3 / Vue Router / Axios / Element Plus / Node.js / Express / MySQL / Nginx
+
+## 项目难点
+### 维护用户订阅状态
+完成数据库结构的构建与连表查询逻辑。基于季度起始时间、订阅开始季和可用季度额度，实现跨季度订阅资格动态计算，并在数据库端统一校验订阅开放窗口，维护订阅页、商品详情页和用户中心的状态一致性。具体实现：用户选择了四季订阅，当用户在未来的季度重新查询订阅状态时能够正确的查到”订阅生效中“(如果用户订阅了多季度的话)
+<img width="1200" height="1200" alt="未命名" src="https://github.com/user-attachments/assets/422d94db-6994-45c9-b65a-05b50edd8837" />
+
 
 ## 项目亮点
 
