@@ -2,6 +2,7 @@ var express = require('express');
 var router = express.Router();
 var db = require('../db')
 
+// 查询数据库中被标记为“当前季”的花季信息，如果不是当前季就拿不到数据，因为我设置了WHERE is_current =1，拿到信息是花季编号主要信息season_code。这个函数两个主要的功能一个确认当前季，这可以看成一个轮子函数。另一个功能则是拿到当前季的季节信息
 function getCurrentSeason(callback) {
   const sql = `
     SELECT
@@ -20,6 +21,42 @@ function getCurrentSeason(callback) {
   `;
 
   db.query(sql, callback);
+}
+
+// 查询用户的订阅情况
+// 查询用户是否有覆盖指定季节的有效订阅。季度覆盖范围按 start_date 顺序计算：
+// 当季订阅覆盖 1 季，四季订阅覆盖开始季及之后 3 季。
+// 非常重要的参数是第二个参数seasonId，它会在函数调用中传入当前的季节
+function getSubscriptionCoveringSeason(userid, seasonId, callback) {
+  const sql = `
+    SELECT
+      subscription.id,
+      subscription.plan_type,
+      subscription.start_season_id,
+      subscription.total_season_count,
+      subscription.allocated_season_count,
+      subscription.subscription_status
+    FROM tb_subscription subscription
+    INNER JOIN tb_flower_season start_season
+      ON start_season.id = subscription.start_season_id
+    INNER JOIN tb_flower_season target_season
+      ON target_season.id = ?
+    WHERE subscription.user_id = ?
+      AND subscription.subscription_status = 'active'
+      AND target_season.start_date >= start_season.start_date
+      -- 上一行代码防止里用户订阅过去的季度
+      AND (
+        SELECT COUNT(*)
+        FROM tb_flower_season covered_season
+        WHERE covered_season.start_date >= start_season.start_date
+          AND covered_season.start_date <= target_season.start_date
+      ) BETWEEN 1 AND subscription.total_season_count
+    -- 上述AND设置了判断距离是否正确的逻辑，即目标季度不能超过购买的数量
+    ORDER BY start_season.start_date DESC
+    LIMIT 1
+  `;
+
+  db.query(sql, [seasonId, userid], callback);
 }
 
 router.get('/', function(req, res, next) {
@@ -130,21 +167,14 @@ router.get('/manager-info/:userid', function(req, res) {
     }
 
     const currentSeason = seasons[0] || null;
-    const sql = `
-      SELECT
-        u.id AS user_id,
-        u.username,
-        s.plan_type,
-        d.selected_flower_id
-      FROM tb_user u
-      LEFT JOIN tb_subscription_delivery d ON d.user_id = u.id AND d.season_id = ?
-      LEFT JOIN tb_subscription s ON s.id = d.subscription_id
-      WHERE u.id = ?
+    const userSql = `
+      SELECT id AS user_id, username
+      FROM tb_user
+      WHERE id = ?
       LIMIT 1
     `;
 
-    // 左侧栏只需要三项：用户id、当前季订阅类型、当前季是否已经选择过花礼。
-    db.query(sql, [currentSeason ? currentSeason.id : 0, userid], function(error, users) {
+    db.query(userSql, [userid], function(error, users) {
       if (error) {
         return res.status(500).send();
       }
@@ -154,19 +184,57 @@ router.get('/manager-info/:userid', function(req, res) {
       }
 
       const user = users[0];
-      const subscriptionStatus = user.plan_type === 'current_season'
-          ? '当季订阅'
-          : user.plan_type === 'four_season'
-              ? '四季订阅'
-              : '未订阅';
 
-      res.json({
-        data: {
-          user_id: user.user_id,
-          username: user.username,
-          subscription_status: subscriptionStatus,
-          current_season_reservation_status: user.selected_flower_id ? '已预约当季花礼' : '未预约当季花礼'
+      if (!currentSeason) {
+        return res.json({
+          data: {
+            user_id: user.user_id,
+            username: user.username,
+            subscription_status: '未订阅',
+            current_season_reservation_status: '未预约当季花礼'
+          }
+        });
+      }
+
+      // 订阅状态只读取订阅主表，不再依赖是否已经生成配送资格或填写地址。
+      getSubscriptionCoveringSeason(userid, currentSeason.id, function(subscriptionErr, subscriptions) {
+        if (subscriptionErr) {
+          return res.status(500).send();
         }
+
+        const subscription = subscriptions[0] || null;
+        const deliverySql = `
+          SELECT selected_flower_id
+          FROM tb_subscription_delivery
+          WHERE user_id = ?
+            AND season_id = ?
+          LIMIT 1
+        `;
+
+        // 预约状态独立读取配送记录；没有记录表示本季尚未预约。
+        db.query(deliverySql, [userid, currentSeason.id], function(deliveryErr, deliveries) {
+          if (deliveryErr) {
+            return res.status(500).send();
+          }
+
+          const delivery = deliveries[0] || null;
+          const subscriptionStatus = subscription && subscription.plan_type === 'current_season'
+              ? '当季订阅'
+              : subscription && subscription.plan_type === 'four_season'
+                  ? '四季订阅'
+                  : '未订阅';
+
+          res.json({
+            data: {
+              user_id: user.user_id,
+              username: user.username,
+              subscription_status: subscriptionStatus,
+              current_season_reservation_status: delivery && delivery.selected_flower_id
+                  ? '已预约当季花礼'
+                  : '未预约当季花礼'
+            }
+          });
+        });
       });
     });
   });
@@ -192,36 +260,20 @@ router.get('/subscription/current/:userid', function(req, res) {
     }
 
     const currentSeason = seasons[0];
-    const sql = `
-      SELECT
-        d.id AS delivery_id,
-        d.selected_flower_id,
-        d.delivery_status,
-        s.plan_type,
-        info.id AS delivery_info_id
-      FROM tb_subscription_delivery d
-      INNER JOIN tb_subscription s ON d.subscription_id = s.id
-      LEFT JOIN tb_user_delivery_info info ON d.user_id = info.user_id
-      WHERE d.user_id = ?
-        AND d.season_id = ?
-      LIMIT 1
-    `;
 
-    // 查询用户当前季是否已有配送资格；这个结果决定 SubscribePage 显示按钮、订阅成功或关闭提示。
-    db.query(sql, [userid, currentSeason.id], function(error, deliveries) {
+    // SubscribePage 的订阅状态只取决于是否存在覆盖当前季的有效订阅。
+    getSubscriptionCoveringSeason(userid, currentSeason.id, function(error, subscriptions) {
       if (error) {
         return res.status(500).send();
       }
 
-      const delivery = deliveries[0] || null;
-      const isValidDelivery = !!delivery && (!!delivery.delivery_info_id || !!delivery.selected_flower_id);
+      const subscription = subscriptions[0] || null;
 
       res.json({
         data: {
           currentSeason: currentSeason,
-          hasCurrentSeasonSubscription: isValidDelivery,
-          planType: isValidDelivery ? delivery.plan_type : '',
-          delivery: delivery,
+          hasCurrentSeasonSubscription: !!subscription,
+          planType: subscription ? subscription.plan_type : '',
           isSubscribeWindowOpen: currentSeason.is_subscribe_window_open === 1
         }
       });
@@ -233,11 +285,13 @@ router.post('/subscription', function(req, res) {
   const userid = req.body.userid;
   const planType = req.body.plan_type;
 
+  // 测试用
   if (planType !== 'current_season' && planType !== 'four_season') {
     return res.status(400).json({
       message: '订阅类型不正确'
     });
   }
+
 
   getCurrentSeason(function(err, seasons) {
     if (err) {
@@ -258,107 +312,50 @@ router.post('/subscription', function(req, res) {
       });
     }
 
-    const deliveryInfoSql = `
-      SELECT id
-      FROM tb_user_delivery_info
-      WHERE user_id = ?
-      LIMIT 1
-    `;
-
-    // 订阅前先检查默认配送信息；没有配送信息时不允许创建订阅和当前季配送资格。
-    db.query(deliveryInfoSql, [userid], function(infoErr, deliveryInfos) {
-      if (infoErr) {
+    // 防止用户重复购买已经覆盖当前季的有效订阅；这里只查询订阅主表。
+    getSubscriptionCoveringSeason(userid, currentSeason.id, function(checkErr, subscriptions) {
+      if (checkErr) {
         return res.status(500).send();
       }
 
-      if (deliveryInfos.length === 0) {
-        return res.status(404).json({
-          message: '请先填写配送信息'
+      if (subscriptions.length > 0) {
+        return res.status(409).json({
+          message: '当前季已经订阅'
         });
       }
 
-      const checkSql = `
-      SELECT id
-      FROM tb_subscription_delivery
-      WHERE user_id = ?
-        AND season_id = ?
-      LIMIT 1
+      const totalSeasonCount = planType === 'four_season' ? 4 : 1;
+
+      // 设置订阅状态
+      const subscriptionSql = `
+        INSERT INTO tb_subscription
+          (user_id, plan_type, start_season_id, total_season_count, allocated_season_count, subscription_status)
+        VALUES
+          (?,?,?,?,0,'active')
       `;
 
-      // 再查当前季是否已经有配送资格；这能挡住当季重复订阅和四季订阅覆盖后的再次购买。
-      db.query(checkSql, [userid, currentSeason.id], function(checkErr, deliveries) {
-        if (checkErr) {
+      db.query(subscriptionSql, [
+        userid,
+        planType,
+        currentSeason.id,
+        totalSeasonCount
+      ], function(insertErr, result) {
+        if (insertErr) {
+          if (insertErr.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({
+              message: '当前季已经订阅'
+            });
+          }
+
           return res.status(500).send();
         }
 
-        if (deliveries.length > 0) {
-          return res.status(409).json({
-            message: '当前季已经订阅'
-          });
-        }
-
-        db.beginTransaction(function(transactionErr) {
-          if (transactionErr) {
-            return res.status(500).send();
+        res.status(201).json({
+          data: {
+            subscription_id: result.insertId,
+            plan_type: planType,
+            season_id: currentSeason.id
           }
-
-          const totalSeasonCount = planType === 'four_season' ? 4 : 1;
-          const subscriptionSql = `
-          INSERT INTO tb_subscription
-            (user_id, plan_type, start_season_id, total_season_count, allocated_season_count, subscription_status)
-          VALUES
-            (?,?,?,?,1,'active')
-          `;
-
-          // 创建订阅主记录：记录用户买的是当季订阅还是四季订阅，以及从哪个 season 开始。
-          db.query(subscriptionSql, [
-            userid,
-            planType,
-            currentSeason.id,
-            totalSeasonCount
-          ], function(insertErr, result) {
-            if (insertErr) {
-              return db.rollback(function() {
-                res.status(500).send();
-              });
-            }
-
-            const deliverySql = `
-            INSERT INTO tb_subscription_delivery
-              (subscription_id, user_id, season_id, delivery_status)
-            VALUES
-              (?,?,?,'pending_select')
-            `;
-
-            // 创建当前季配送资格；selected_flower_id 先为空，等用户在产品详情页三选一。
-            db.query(deliverySql, [
-              result.insertId,
-              userid,
-              currentSeason.id
-            ], function(deliveryErr) {
-              if (deliveryErr) {
-                return db.rollback(function() {
-                  res.status(500).send();
-                });
-              }
-
-              db.commit(function(commitErr) {
-                if (commitErr) {
-                  return db.rollback(function() {
-                    res.status(500).send();
-                  });
-                }
-
-                res.status(201).json({
-                  data: {
-                    subscription_id: result.insertId,
-                    plan_type: planType,
-                    season_id: currentSeason.id
-                  }
-                });
-              });
-            });
-          });
         });
       });
     });
@@ -415,54 +412,22 @@ router.get('/subscription/product-status', function(req, res) {
     const deliverySql = `
       SELECT
         selected_flower_id,
-        delivery_status,
-        info.id AS delivery_info_id
-      FROM tb_subscription_delivery d
-      LEFT JOIN tb_user_delivery_info info ON d.user_id = info.user_id
-      WHERE d.user_id = ?
-        AND d.season_id = ?
+        delivery_status
+      FROM tb_subscription_delivery
+      WHERE user_id = ?
+        AND season_id = ?
       LIMIT 1
     `;
 
-    // 再读取用户当前季配送资格；它决定按钮是订阅、预约配送、预约成功还是无法获取。
+    // 已有预约记录时，优先根据用户选择的花礼显示预约成功或无法获取。
     db.query(deliverySql, [userid, flower.season_id], function(error, deliveries) {
       if (error) {
         return res.status(500).send();
       }
 
-      if (deliveries.length === 0) {
-        return res.json({
-          data: {
-            buttonText: '订阅',
-            buttonDisabled: false,
-            action: 'subscribe'
-          }
-        });
-      }
+      const delivery = deliveries[0] || null;
 
-      const delivery = deliveries[0];
-
-      if (!delivery.selected_flower_id && !delivery.delivery_info_id) {
-        return res.json({
-          data: {
-            buttonText: '订阅',
-            buttonDisabled: false,
-            action: 'subscribe'
-          }
-        });
-      }
-
-      if (!delivery.selected_flower_id) {
-        return res.json({
-          data: {
-            buttonText: '预约配送',
-            buttonDisabled: false,
-            action: 'reserve'
-          }
-        });
-      }
-
-      if (delivery.selected_flower_id === Number(flowerId)) {
+      if (delivery && delivery.selected_flower_id === Number(flowerId)) {
         return res.json({
           data: {
             buttonText: '预约成功',
@@ -472,12 +437,39 @@ router.get('/subscription/product-status', function(req, res) {
         });
       }
 
-      res.json({
-        data: {
-          buttonText: '无法获取',
-          buttonDisabled: true,
-          action: 'none'
+      if (delivery && delivery.selected_flower_id) {
+        return res.json({
+          data: {
+            buttonText: '无法获取',
+            buttonDisabled: true,
+            action: 'none'
+          }
+        });
+      }
+
+      // 尚未预约时，只根据订阅主表判断用户是否拥有覆盖当前季的有效订阅。
+      getSubscriptionCoveringSeason(userid, flower.season_id, function(subscriptionErr, subscriptions) {
+        if (subscriptionErr) {
+          return res.status(500).send();
         }
+
+        if (subscriptions.length > 0) {
+          return res.json({
+            data: {
+              buttonText: '预约配送',
+              buttonDisabled: false,
+              action: 'reserve'
+            }
+          });
+        }
+
+        res.json({
+          data: {
+            buttonText: '订阅',
+            buttonDisabled: false,
+            action: 'subscribe'
+          }
+        });
       });
     });
   });
@@ -498,10 +490,12 @@ router.post('/subscription/reserve', function(req, res) {
     LIMIT 1
   `;
 
-  // 后端再次检查 flower 是否属于当前季，不能只依赖前端按钮禁用。
+  // 后端再次检查 flower 是否属于当前季，防止用户使用请求绕开前端
   db.query(flowerSql, [flowerId], function(err, flowers) {
     if (err) {
-      return res.status(500).send();
+      return res.status(500).send(
+
+      );
     }
 
     if (flowers.length === 0 || flowers[0].status !== 1 || flowers[0].is_current !== 1) {
@@ -511,68 +505,189 @@ router.post('/subscription/reserve', function(req, res) {
     }
 
     const flower = flowers[0];
-    const infoSql = `
-      SELECT
-        receiver_name,
-        receiver_phone,
-        address
-      FROM tb_user_delivery_info
-      WHERE user_id = ?
-      LIMIT 1
-    `;
 
-    // 预约前读取默认配送信息；预约成功后会复制快照，保证之后改默认地址不影响本次预约。
-    db.query(infoSql, [userid], function(infoErr, infos) {
-      if (infoErr) {
+    // 预约按钮负责验证用户是否有覆盖当前季的有效订阅。
+    getSubscriptionCoveringSeason(userid, flower.season_id, function(subscriptionErr, subscriptions) {
+      if (subscriptionErr) {
         return res.status(500).send();
       }
 
-      if (infos.length === 0) {
-        return res.status(404).json({
-          message: '请先填写配送信息'
+      if (subscriptions.length === 0) {
+        return res.status(403).json({
+          message: '当前用户没有本季配送资格'
         });
       }
 
-      const deliveryInfo = infos[0];
-      const updateSql = `
-        UPDATE tb_subscription_delivery
-        SET
-          selected_flower_id = ?,
-          delivery_status = 'shipping',
-          receiver_name_snapshot = ?,
-          receiver_phone_snapshot = ?,
-          address_snapshot = ?,
-          reserved_at = NOW()
+      const subscription = subscriptions[0];
+      const deliverySql = `
+        SELECT id, subscription_id, selected_flower_id
+        FROM tb_subscription_delivery
         WHERE user_id = ?
           AND season_id = ?
-          AND selected_flower_id IS NULL
+        LIMIT 1
       `;
 
-      // 只有 selected_flower_id 为空时才允许预约；一旦预约成功，前台不能改选其他产品。
-      db.query(updateSql, [
-        flowerId,
-        deliveryInfo.receiver_name,
-        deliveryInfo.receiver_phone,
-        deliveryInfo.address,
-        userid,
-        flower.season_id
-      ], function(updateErr, result) {
-        if (updateErr) {
+      db.query(deliverySql, [userid, flower.season_id], function(deliveryErr, deliveries) {
+        if (deliveryErr) {
           return res.status(500).send();
         }
 
-        if (result.affectedRows === 0) {
+        const existingDelivery = deliveries[0] || null;
+
+        if (existingDelivery && existingDelivery.selected_flower_id) {
           return res.status(409).json({
             message: '当前季已经预约过产品'
           });
         }
 
-        res.status(201).json({
-          data: {
-            flower_id: Number(flowerId),
-            season_id: flower.season_id,
-            delivery_status: 'shipping'
+        if (!existingDelivery && subscription.allocated_season_count >= subscription.total_season_count) {
+          return res.status(403).json({
+            message: '当前用户没有本季配送资格'
+          });
+        }
+
+        const infoSql = `
+          SELECT
+            receiver_name,
+            receiver_phone,
+            address
+          FROM tb_user_delivery_info
+          WHERE user_id = ?
+          LIMIT 1
+        `;
+
+        // 资格验证通过后才检查地址；缺少地址时不创建配送记录，也不增加分配次数。
+        db.query(infoSql, [userid], function(infoErr, infos) {
+          if (infoErr) {
+            return res.status(500).send();
           }
+
+          if (infos.length === 0) {
+            return res.status(404).json({
+              message: '请先填写配送信息'
+            });
+          }
+
+          const deliveryInfo = infos[0];
+
+          db.beginTransaction(function(transactionErr) {
+            if (transactionErr) {
+              return res.status(500).send();
+            }
+
+            function commitReservation() {
+              db.commit(function(commitErr) {
+                if (commitErr) {
+                  return db.rollback(function() {
+                    res.status(500).send();
+                  });
+                }
+
+                res.status(201).json({
+                  data: {
+                    flower_id: Number(flowerId),
+                    season_id: flower.season_id,
+                    delivery_status: 'shipping'
+                  }
+                });
+              });
+            }
+
+            if (existingDelivery) {
+              const updateSql = `
+                UPDATE tb_subscription_delivery
+                SET
+                  selected_flower_id = ?,
+                  delivery_status = 'shipping',
+                  receiver_name_snapshot = ?,
+                  receiver_phone_snapshot = ?,
+                  address_snapshot = ?,
+                  reserved_at = NOW()
+                WHERE id = ?
+                  AND selected_flower_id IS NULL
+              `;
+
+              return db.query(updateSql, [
+                flowerId,
+                deliveryInfo.receiver_name,
+                deliveryInfo.receiver_phone,
+                deliveryInfo.address,
+                existingDelivery.id
+              ], function(updateErr, result) {
+                if (updateErr) {
+                  return db.rollback(function() {
+                    res.status(500).send();
+                  });
+                }
+
+                if (result.affectedRows === 0) {
+                  return db.rollback(function() {
+                    res.status(409).json({
+                      message: '当前季已经预约过产品'
+                    });
+                  });
+                }
+
+                commitReservation();
+              });
+            }
+
+            const allocationSql = `
+              UPDATE tb_subscription
+              SET allocated_season_count = allocated_season_count + 1
+              WHERE id = ?
+                AND subscription_status = 'active'
+                AND allocated_season_count < total_season_count
+            `;
+
+            db.query(allocationSql, [subscription.id], function(allocationErr, allocationResult) {
+              if (allocationErr) {
+                return db.rollback(function() {
+                  res.status(500).send();
+                });
+              }
+
+              if (allocationResult.affectedRows === 0) {
+                return db.rollback(function() {
+                  res.status(403).json({
+                    message: '当前用户没有本季配送资格'
+                  });
+                });
+              }
+
+              const insertSql = `
+                INSERT INTO tb_subscription_delivery
+                  (subscription_id, user_id, season_id, selected_flower_id, delivery_status,
+                   receiver_name_snapshot, receiver_phone_snapshot, address_snapshot, reserved_at)
+                VALUES
+                  (?,?,?,?,'shipping',?,?,?,NOW())
+              `;
+
+              db.query(insertSql, [
+                subscription.id,
+                userid,
+                flower.season_id,
+                flowerId,
+                deliveryInfo.receiver_name,
+                deliveryInfo.receiver_phone,
+                deliveryInfo.address
+              ], function(insertErr) {
+                if (insertErr) {
+                  return db.rollback(function() {
+                    if (insertErr.code === 'ER_DUP_ENTRY') {
+                      return res.status(409).json({
+                        message: '当前季已经预约过产品'
+                      });
+                    }
+
+                    res.status(500).send();
+                  });
+                }
+
+                commitReservation();
+              });
+            });
+          });
         });
       });
     });

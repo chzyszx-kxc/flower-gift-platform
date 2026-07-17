@@ -3,9 +3,8 @@
     <div class="footer-info">
       <span>网站作者：陈子乐</span>
       <span>期望岗位：初级全栈工程师、前端开发</span>
-      <span>联系方式：请通过 GitHub Profile 联系</span>
+      <span>联系方式：GitHub Profile</span>
       <span>个人信息：广东理工学院27届本科应届生</span>
-      <span class="more-line">了解更多：<a style="text-decoration: underline" href="http://115.29.203.212/portfolio/">个人作品集</a></span>
     </div>
     <div class="footer-media">
       <a class="media-box" href="https://github.com/chzyszx-kxc" target="_blank" rel="noreferrer">

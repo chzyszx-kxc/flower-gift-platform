@@ -37,7 +37,7 @@ body {
 
 #app > div {
   display: grid;
-  grid-template-columns: 400px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
 }
 
 #app > div > :first-child {

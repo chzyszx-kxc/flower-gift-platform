@@ -158,6 +158,8 @@ export default {
         }
       })
     },
+
+    // 获取按钮状态
     GetSubscriptionButtonStatus() {
       const flower_id = this.$route.query.flower_id
 
@@ -227,7 +229,10 @@ export default {
           ElMessage.error('当前季已经预约过产品')
           this.GetSubscriptionButtonStatus()
         } else if (error.response && error.response.status === 403) {
-          ElMessage.error('当前产品不可预约')
+          const message = error.response.data && error.response.data.message
+              ? error.response.data.message
+              : '当前产品不可预约'
+          ElMessage.error(message)
           this.GetSubscriptionButtonStatus()
         } else {
           ElMessage.error('预约失败')

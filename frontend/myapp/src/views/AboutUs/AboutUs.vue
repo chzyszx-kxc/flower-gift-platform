@@ -97,7 +97,7 @@ const panels = [
     nav: '门店信息',
     kicker: 'Store Information',
     title: '门店信息',
-    description: '联系方式：请通过 GitHub Profile 联系\n所在地区：九州大陆·东荒域·青玄州·云岚城\n详细地址：天剑山脉以南，星落河畔，太虚仙宗外门弟子居第七峰青竹院三号',
+    description: '联系方式：GitHub Profile\n所在地区：九州大陆·东荒域·青玄州·云岚城\n详细地址：天剑山脉以南，星落河畔，太虚仙宗外门弟子居第七峰青竹院三号',
     points: ['到店咨询', '订阅服务', '花礼预约'],
     image: venueImage,
     imageAlt: 'LogoFlower 门店外观',

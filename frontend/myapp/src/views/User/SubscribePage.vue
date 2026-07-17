@@ -136,7 +136,7 @@ export default {
   },
   methods: {
     getSubscriptionStatus() {
-      // 从数据库拿当前季、订阅窗口和用户当前季资格；这些数据决定按钮、成功提示和关闭提示显示哪一种。
+      // 从订阅主表拿当前季有效订阅和订阅窗口；配送资格与地址不影响这里的显示。
       axios.get('/flower/api/users/subscription/current/' + this.userid).then(res => {
         const data = res.data.data || {};
 
@@ -150,10 +150,11 @@ export default {
       })
     },
     submitSubscription(planType) {
-      // 点击订阅时直接创建订阅和当前季配送资格；本展示项目不处理真实支付。
+      // 设置订阅状态
       axios.post('/flower/api/users/subscription', {
         userid: this.userid,
         plan_type: planType
+        // planType是"curren_season"或"four season"
       }).then(res => {
         if (res.status === 201) {
           ElMessage({
@@ -163,13 +164,7 @@ export default {
           this.getSubscriptionStatus();
         }
       }).catch(error => {
-        if (error.response && error.response.status === 404 && error.response.data.message === '请先填写配送信息') {
-          ElMessage({
-            message: '请先填写配送信息',
-            type: 'warning'
-          })
-          this.$router.push('/user/manager');
-        } else if (error.response && error.response.status === 403) {
+        if (error.response && error.response.status === 403) {
           ElMessage.error('订阅名单已关闭，请静候下期花礼');
         } else if (error.response && error.response.status === 409) {
           ElMessage.error('当前季已经订阅');

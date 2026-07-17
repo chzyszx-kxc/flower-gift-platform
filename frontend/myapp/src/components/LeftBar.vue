@@ -138,7 +138,7 @@ export default {
 <style scoped>
 .left-bar {
   min-height: 100vh;
-  padding: 32px 48px 32px;
+  padding: 32px;
   background: #f7f7f7;
   color: #111111;
   font-family: "Courier New", Courier, monospace;
@@ -157,6 +157,11 @@ export default {
 }
 
 .season-info {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 12px;
   margin-top: -42px;
   padding-top: 0;
   padding-bottom: 28px;
@@ -164,15 +169,7 @@ export default {
 }
 
 .season-row {
-  display: grid;
-  grid-template-columns: 128px minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 12px;
-}
-
-.season-row:last-child {
-  margin-bottom: 0;
+  display: contents;
 }
 
 .season-label {
@@ -185,7 +182,7 @@ export default {
 .season-value {
   display: block;
   min-height: 30px;
-  padding: 9px 14px 8px;
+  padding: 9px 10px 8px;
   border-radius: 4px;
   background: #e8e8e8;
   color: #555555;
