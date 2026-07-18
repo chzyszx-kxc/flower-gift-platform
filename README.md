@@ -22,10 +22,52 @@ Vue3 + Express + MySQL 全栈项目，独立完成展示型前台、订阅业务
 ## 目录结构
 
 ```text
-backend/myapp/        Express 后端服务
-frontend/myapp/       Vue3 前端应用
-database_for_flowers.sql  MySQL 表结构和展示数据
-```
+flower-project
+├── frontend/myapp
+│   ├── public
+│   │   ├── index.html
+│   │   └── img/                         # 公共图片资源
+│   ├── src
+│   │   ├── main.js                      # Vue 应用入口
+│   │   ├── App.vue                      # 根组件
+│   │   ├── router
+│   │   │   └── router.js                # 前端页面路由
+│   │   ├── components
+│   │   │   ├── MyNavigate.vue           # 顶部导航
+│   │   │   ├── MyFooter.vue             # 页脚
+│   │   │   ├── LeftBar.vue              # 侧边栏
+│   │   ├── views
+│   │   │   ├── Home
+│   │   │   │   └── index.vue            # 首页
+│   │   │   ├── ThisSeason
+│   │   │   │   └── ThisSeason.vue       # 当季花礼
+│   │   │   ├── FlowerShop
+│   │   │   │   ├── ArchiveProducts.vue  # 往季花礼
+│   │   │   │   └── ProductDetails.vue   # 花礼详情与同季推荐
+│   │   │   ├── User
+│   │   │   │   ├── UserLogin.vue        # 登录
+│   │   │   │   ├── UserRegister.vue     # 注册
+│   │   │   │   ├── UserManager.vue      # 用户中心
+│   │   │   │   └── SubscribePage.vue    # 订阅页面
+│   │   │   └── AboutUs
+│   │   │       └── AboutUs.vue          # 关于我们
+│   │   └── assets                       # 图片、视频、Logo 等资源
+│   ├── package.json
+│   └── vue.config.js                    # Vue CLI 配置与代理/部署路径
+│
+├── backend/myapp
+│   ├── app.js                           # Express 应用入口
+│   ├── bin
+│   │   └── www                          # 服务启动文件
+│   ├── db
+│   │   └── index.js                     # MySQL 连接配置
+│   ├── routes
+│   │   ├── flowers.js                   # 花礼展示、季度、详情、推荐接口
+│   │   └── users.js                     # 用户、配送信息、订阅接口
+│   ├── views                            # Express 默认模板目录
+│   └── package.json
+│
+└── database_for_flowers.sql             # 花礼项目数据库结构与基础数据```
 
 ## 本地运行
 
